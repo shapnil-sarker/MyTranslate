@@ -1,0 +1,215 @@
+import SwiftUI
+
+struct ContentView: View {
+    @State private var originalText: String = ""
+    @State private var translatedText: String = ""
+    @State private var isLoading: Bool = false
+    @State private var sourceLanguage: String = "en" // Default: English
+    @State private var targetLanguage: String = "fr" // Default: French
+    @AppStorage("savedTranslations") private var savedTranslations: String = ""
+
+    let languages = [
+        ("English", "en"),
+        ("French", "fr"),
+        ("Spanish", "es"),
+        ("German", "de"),
+        ("Italian", "it")
+    ]
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Translate Me")
+                    .font(.largeTitle)
+                    .bold()
+
+                // TextField for Original Text
+                TextField("Enter text", text: $originalText)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal)
+
+                // Language Pickers
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("From:")
+                            .font(.headline)
+                        Picker("Source Language", selection: $sourceLanguage) {
+                            ForEach(languages, id: \.1) { language in
+                                Text(language.0).tag(language.1)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .leading) {
+                        Text("To:")
+                            .font(.headline)
+                        Picker("Target Language", selection: $targetLanguage) {
+                            ForEach(languages, id: \.1) { language in
+                                Text(language.0).tag(language.1)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                    }
+                }
+                .padding(.horizontal)
+
+                // Translate Button
+                Button(action: translateText) {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                    } else {
+                        Text("Translate Me")
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .cornerRadius(10)
+                    }
+                }
+                .padding(.horizontal)
+                .disabled(originalText.isEmpty || isLoading)
+
+                // Display Translations
+                VStack(alignment: .leading, spacing: 10) {
+                    if !translatedText.isEmpty {
+                        Text("Original Text:")
+                            .font(.headline)
+                        Text(originalText)
+                            .foregroundColor(.gray)
+
+                        Text("Translated Text:")
+                            .font(.headline)
+                        Text(translatedText)
+                            .foregroundColor(.blue)
+                    }
+                }
+                .padding(.horizontal)
+
+                Spacer()
+
+                // Navigation to Saved Translations View
+                NavigationLink(destination: SavedTranslationsView(savedTranslations: $savedTranslations)) {
+                    Text("View Saved Translations")
+                        .foregroundColor(.blue)
+                        .underline()
+                }
+                .padding(.bottom, 20)
+            }
+            .padding()
+        }
+    }
+
+    private func translateText() {
+        guard !originalText.isEmpty else { return }
+        isLoading = true
+
+        // Properly encode the text
+        let encodedText = originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let urlString = "https://api.mymemory.translated.net/get?q=\(encodedText)&langpair=\(sourceLanguage)|\(targetLanguage)"
+
+        guard let url = URL(string: urlString) else {
+            isLoading = false
+            print("Invalid URL")
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            DispatchQueue.main.async {
+                isLoading = false
+            }
+
+            if let error = error {
+                print("Error in API request: \(error.localizedDescription)")
+                return
+            }
+
+            guard let data = data else {
+                print("No data received from API")
+                return
+            }
+
+            do {
+                let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+                if let responseData = json?["responseData"] as? [String: Any],
+                   let translatedText = responseData["translatedText"] as? String {
+                    DispatchQueue.main.async {
+                        self.translatedText = translatedText
+                        saveTranslation(original: self.originalText, translated: translatedText)
+                    }
+                } else {
+                    print("Unexpected JSON format")
+                }
+            } catch {
+                print("Error decoding JSON: \(error.localizedDescription)")
+            }
+        }.resume()
+    }
+
+    private func saveTranslation(original: String, translated: String) {
+        let newEntry = "\(original) -> \(translated)"
+        if !savedTranslations.isEmpty {
+            savedTranslations += "\n\(newEntry)"
+        } else {
+            savedTranslations = newEntry
+        }
+    }
+}
+
+struct SavedTranslationsView: View {
+    @Binding var savedTranslations: String
+
+    var body: some View {
+        VStack {
+            if savedTranslations.isEmpty {
+                Text("No translations saved yet.")
+                    .foregroundColor(.gray)
+                    .padding()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(savedTranslations.components(separatedBy: "\n"), id: \.self) { translation in
+                            Text(translation)
+                                .padding()
+                                .background(Color(.systemGray6))
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding()
+                }
+            }
+
+            Spacer()
+
+            // Clear History Button
+            Button(action: {
+                clearHistory()
+            }) {
+                Text("Clear History")
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.red)
+                    .cornerRadius(10)
+            }
+            .padding()
+        }
+        .navigationTitle("Saved Translations")
+    }
+
+    private func clearHistory() {
+        savedTranslations = ""
+    }
+}
+
+@main
+struct TranslateMeApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
