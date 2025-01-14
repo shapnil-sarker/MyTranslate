@@ -1,0 +1,547 @@
+import SwiftUI
+
+// Helper Extension for UserDefaults
+extension UserDefaults {
+    func loadDictionary(forKey key: String) -> [String: Any] {
+        return self.dictionary(forKey: key) ?? [:]
+    }
+
+    func saveDictionary(_ dictionary: [String: Any], forKey key: String) {
+        self.set(dictionary, forKey: key)
+    }
+}
+
+// Friend and Chat Models
+struct Friend: Identifiable {
+    let id = UUID()
+    let name: String
+}
+
+struct Chat: Identifiable {
+    let id = UUID()
+    let friendName: String
+    let lastMessage: String
+}
+
+// Main ContentView
+struct ContentView: View {
+    @State private var isLoggedIn: Bool = false
+    @State private var isSigningUp: Bool = false
+    @State private var currentUser: String = ""
+    @State private var selectedTab: Int = 0
+    @State private var friends: [Friend] = []
+    @State private var groups: [String] = []
+    @State private var recentChats: [Chat] = []
+    @State private var selectedFriend: Friend? = nil
+
+    var body: some View {
+        if isLoggedIn {
+            TabView(selection: $selectedTab) {
+                HomeView(recentChats: $recentChats)
+                    .tabItem {
+                        Image(systemName: "house")
+                        Text("Home")
+                    }
+                    .tag(0)
+
+                FriendsView(friends: $friends, selectedFriend: $selectedFriend, recentChats: $recentChats)
+                    .tabItem {
+                        Image(systemName: "person.2")
+                        Text("Friends")
+                    }
+                    .tag(1)
+
+                GroupsView(groups: $groups)
+                    .tabItem {
+                        Image(systemName: "person.3")
+                        Text("Groups")
+                    }
+                    .tag(2)
+
+                AccountView(isLoggedIn: $isLoggedIn, currentUser: $currentUser, saveData: saveData)
+                    .tabItem {
+                        Image(systemName: "gear")
+                        Text("Account")
+                    }
+                    .tag(3)
+            }
+            .sheet(item: $selectedFriend) { friend in
+                ChatView(friend: friend.name, recentChats: $recentChats)
+            }
+        } else {
+            if isSigningUp {
+                SignupView(
+                    isSigningUp: $isSigningUp,
+                    isLoggedIn: $isLoggedIn,
+                    currentUser: $currentUser
+                )
+            } else {
+                LoginView(
+                    isSigningUp: $isSigningUp,
+                    isLoggedIn: $isLoggedIn,
+                    currentUser: $currentUser,
+                    friends: $friends,
+                    groups: $groups,
+                    recentChats: $recentChats
+                )
+            }
+        }
+    }
+
+    func saveData() {
+        var userData = UserDefaults.standard.loadDictionary(forKey: "UserData")
+        userData[currentUser] = [
+            "friends": friends.map { $0.name },
+            "groups": groups,
+            "recentChats": recentChats.map { ["friendName": $0.friendName, "lastMessage": $0.lastMessage] }
+        ]
+        UserDefaults.standard.saveDictionary(userData, forKey: "UserData")
+    }
+}
+
+// Account View
+struct AccountView: View {
+    @Binding var isLoggedIn: Bool
+    @Binding var currentUser: String
+    var saveData: () -> Void
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                Text("Account")
+                    .font(.largeTitle)
+                    .padding()
+
+                Text("Logged in as: \(currentUser)")
+                    .font(.headline)
+                    .padding()
+
+                Spacer()
+
+                Button(action: {
+                    saveData()
+                    isLoggedIn = false
+                    currentUser = ""
+                }) {
+                    Text("Sign Out")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .padding(.horizontal)
+                }
+                Spacer()
+            }
+            .navigationTitle("Account Settings")
+        }
+    }
+}
+
+// Login View
+struct LoginView: View {
+    @Binding var isSigningUp: Bool
+    @Binding var isLoggedIn: Bool
+    @Binding var currentUser: String
+    @Binding var friends: [Friend]
+    @Binding var groups: [String]
+    @Binding var recentChats: [Chat]
+    @State private var username: String = ""
+    @State private var password: String = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack {
+            Text("Welcome to Contacter")
+                .font(.largeTitle)
+                .padding()
+
+            TextField("Username", text: $username)
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(8)
+                .padding(.horizontal)
+
+            SecureField("Password", text: $password)
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(8)
+                .padding(.horizontal)
+
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .padding(.bottom)
+            }
+
+            Button(action: {
+                let accounts = UserDefaults.standard.loadDictionary(forKey: "Accounts")
+                if let storedPassword = accounts[username] as? String, storedPassword == password {
+                    loadData(for: username)
+                    currentUser = username
+                    isLoggedIn = true
+                } else {
+                    errorMessage = "Invalid username or password."
+                }
+            }) {
+                Text("Login")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+            }
+
+            Button(action: {
+                isSigningUp = true
+            }) {
+                Text("Sign Up")
+                    .padding()
+                    .foregroundColor(.blue)
+            }
+        }
+    }
+
+    func loadData(for username: String) {
+        let userData = UserDefaults.standard.loadDictionary(forKey: "UserData")
+        if let user = userData[username] as? [String: Any] {
+            friends = (user["friends"] as? [String] ?? []).map { Friend(name: $0) }
+            groups = user["groups"] as? [String] ?? []
+            recentChats = (user["recentChats"] as? [[String: String]] ?? []).map {
+                Chat(friendName: $0["friendName"] ?? "", lastMessage: $0["lastMessage"] ?? "")
+            }
+        } else {
+            friends = []
+            groups = []
+            recentChats = []
+        }
+    }
+}
+
+// Signup View
+struct SignupView: View {
+    @Binding var isSigningUp: Bool
+    @Binding var isLoggedIn: Bool
+    @Binding var currentUser: String
+    @State private var username: String = ""
+    @State private var password: String = ""
+    @State private var confirmPassword: String = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack {
+            Text("Create an Account")
+                .font(.largeTitle)
+                .padding()
+
+            TextField("Username", text: $username)
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(8)
+                .padding(.horizontal)
+
+            SecureField("Password", text: $password)
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(8)
+                .padding(.horizontal)
+
+            SecureField("Confirm Password", text: $confirmPassword)
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(8)
+                .padding(.horizontal)
+
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .padding(.bottom)
+            }
+
+            Button(action: {
+                if password != confirmPassword {
+                    errorMessage = "Passwords do not match."
+                    return
+                }
+                var accounts = UserDefaults.standard.loadDictionary(forKey: "Accounts")
+                if accounts[username] != nil {
+                    errorMessage = "Username already exists."
+                } else {
+                    accounts[username] = password
+                    UserDefaults.standard.saveDictionary(accounts, forKey: "Accounts")
+                    currentUser = username
+                    isLoggedIn = true
+                    isSigningUp = false
+                }
+            }) {
+                Text("Sign Up")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+            }
+
+            Button(action: {
+                isSigningUp = false
+            }) {
+                Text("Back to Login")
+                    .padding()
+                    .foregroundColor(.blue)
+            }
+        }
+    }
+}
+
+// Home View
+struct HomeView: View {
+    @Binding var recentChats: [Chat]
+
+    var body: some View {
+        NavigationView {
+            List(recentChats) { chat in
+                VStack(alignment: .leading) {
+                    Text(chat.friendName)
+                        .font(.headline)
+                    Text(chat.lastMessage)
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+            }
+            .navigationTitle("Recent Chats")
+        }
+    }
+}
+
+// Friends View
+struct FriendsView: View {
+    @Binding var friends: [Friend]
+    @Binding var selectedFriend: Friend?
+    @Binding var recentChats: [Chat]
+    @State private var showAddFriendList: Bool = false
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                List {
+                    ForEach(friends) { friend in
+                        HStack {
+                            Text(friend.name)
+                            Spacer()
+                            Button(action: {
+                                selectedFriend = friend
+                            }) {
+                                Text("Start Chat")
+                                    .font(.callout)
+                                    .padding(8)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(5)
+                            }
+                        }
+                    }
+                    .onDelete { indexSet in
+                        friends.remove(atOffsets: indexSet)
+                    }
+                }
+                .navigationTitle("Friends")
+
+                Button(action: {
+                    showAddFriendList = true
+                }) {
+                    Text("Add Friend")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .padding(.horizontal)
+                }
+                .sheet(isPresented: $showAddFriendList) {
+                    AddFriendView(friends: $friends)
+                }
+            }
+        }
+    }
+}
+
+// Groups View
+struct GroupsView: View {
+    @Binding var groups: [String]
+    @State private var showJoinGroupList: Bool = false
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                List {
+                    ForEach(groups, id: \.self) { group in
+                        Text(group)
+                    }
+                    .onDelete { indexSet in
+                        groups.remove(atOffsets: indexSet)
+                    }
+                }
+                .navigationTitle("Groups")
+
+                Button(action: {
+                    showJoinGroupList = true
+                }) {
+                    Text("Join Group")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .padding(.horizontal)
+                }
+                .sheet(isPresented: $showJoinGroupList) {
+                    JoinGroupView(groups: $groups)
+                }
+            }
+        }
+    }
+}
+
+// Chat View
+struct ChatView: View {
+    let friend: String
+    @Binding var recentChats: [Chat]
+    @State private var messages: [String] = []
+    @State private var newMessage: String = ""
+
+    var body: some View {
+        VStack {
+            List(messages, id: \.self) { message in
+                Text(message)
+            }
+            HStack {
+                TextField("Enter message...", text: $newMessage)
+                    .padding()
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(8)
+                Button(action: {
+                    if !newMessage.isEmpty {
+                        messages.append(newMessage)
+
+                        if let index = recentChats.firstIndex(where: { $0.friendName == friend }) {
+                            recentChats[index] = Chat(friendName: friend, lastMessage: newMessage)
+                        } else {
+                            recentChats.append(Chat(friendName: friend, lastMessage: newMessage))
+                        }
+                        newMessage = ""
+                    }
+                }) {
+                    Text("Send")
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Chat with \(friend)")
+    }
+}
+
+// Add Friend View
+struct AddFriendView: View {
+    @Binding var friends: [Friend]
+    @State private var searchQuery: String = ""
+    let friendsToAdd = ["Diana", "Eve", "Frank", "Grace"]
+
+    var filteredFriends: [String] {
+        if searchQuery.isEmpty {
+            return friendsToAdd
+        } else {
+            return friendsToAdd.filter { $0.lowercased().contains(searchQuery.lowercased()) }
+        }
+    }
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                TextField("Search friends...", text: $searchQuery)
+                    .padding()
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+
+                List(filteredFriends, id: \.self) { friend in
+                    Button(action: {
+                        if !friends.contains(where: { $0.name == friend }) {
+                            friends.append(Friend(name: friend))
+                        }
+                    }) {
+                        HStack {
+                            Text(friend)
+                            Spacer()
+                            if friends.contains(where: { $0.name == friend }) {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add a Friend")
+        }
+    }
+}
+
+// Join Group View
+struct JoinGroupView: View {
+    @Binding var groups: [String]
+    @State private var searchQuery: String = ""
+    let groupsToJoin = ["Study Group", "Work Team", "Hiking Club", "Book Club"]
+
+    var filteredGroups: [String] {
+        if searchQuery.isEmpty {
+            return groupsToJoin
+        } else {
+            return groupsToJoin.filter { $0.lowercased().contains(searchQuery.lowercased()) }
+        }
+    }
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                TextField("Search groups...", text: $searchQuery)
+                    .padding()
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+
+                List(filteredGroups, id: \.self) { group in
+                    Button(action: {
+                        if !groups.contains(group) {
+                            groups.append(group)
+                        }
+                    }) {
+                        HStack {
+                            Text(group)
+                            Spacer()
+                            if groups.contains(group) {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Join a Group")
+        }
+    }
+}
+
+// Preview
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
+}
+#Preview {
+    ContentView()
+}
